@@ -1,0 +1,186 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BMP Steganography</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 700px;
+      margin: auto;
+      background-color: #f7f9fc;
+      color: #333;
+    }
+    h1 {
+      text-align: center;
+      color: #00509e;
+    }
+    h2 {
+      color: #003f7d;
+      margin-top: 30px;
+    }
+    textarea {
+      width: 100%;
+      padding: 10px;
+      font-family: monospace;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      resize: vertical;
+    }
+    input[type="file"], input[type="number"] {
+      margin: 10px 0;
+    }
+    button {
+      padding: 10px 20px;
+      background-color: #00509e;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+    button:hover {
+      background-color: #003f7d;
+    }
+    label {
+      display: block;
+      margin-top: 10px;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>BMP Steganography</h1>
+
+  <h2>Encode</h2>
+  <label for="encodeImg">Select BMP image:</label>
+  <input type="file" id="encodeImg" accept=".bmp,image/bmp,image/*">
+
+  <label for="message">Message to embed:</label>
+  <textarea id="message" placeholder="Enter your message here..." style="height: 150px;"></textarea>
+  <button onclick="encodeMessage()">Encode & Download</button>
+
+  <h2>Decode</h2>
+  <label for="decodeImg">Select BMP image:</label>
+  <input type="file" id="decodeImg" accept=".bmp,image/bmp,image/*">
+  <button onclick="decodeMessage()">Decode</button>
+
+  <label for="output">Extracted Message:</label>
+  <textarea id="output" readonly style="height: 150px;"></textarea>
+
+  <h2>Create a Black BMP</h2>
+  <label for="bmpSize">Enter size (width = height):</label>
+  <input type="number" id="bmpSize" min="1" value="100">
+  <button onclick="generateBlackBMP()">Generate BMP</button>
+
+  <script>
+    const HEADER_SIZE = 54;
+
+    function getBitArrayFromText(text) {
+      const bits = [];
+      for (let i = 0; i <= text.length; i++) {
+        const code = i < text.length ? text.charCodeAt(i) : 0;
+        for (let b = 7; b >= 0; b--) {
+          bits.push((code >> b) & 1);
+        }
+      }
+      return bits;
+    }
+
+    function getTextFromBits(data, start) {
+      let text = "";
+      let charCode = 0;
+      let bitCount = 0;
+      for (let i = start; i < data.length; i++) {
+        charCode = (charCode << 1) | (data[i] & 1);
+        bitCount++;
+        if (bitCount === 8) {
+          if (charCode === 0) break;
+          text += String.fromCharCode(charCode);
+          charCode = 0;
+          bitCount = 0;
+        }
+      }
+      return text;
+    }
+
+    function encodeMessage() {
+      const fileInput = document.getElementById('encodeImg');
+      const message = document.getElementById('message').value;
+      if (!fileInput.files[0]) return alert("Please select a BMP image.");
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const buffer = new Uint8Array(e.target.result);
+        const bits = getBitArrayFromText(message);
+        if (buffer.length - HEADER_SIZE < bits.length) {
+          const side = Math.ceil(Math.sqrt(bits.length / 3));
+alert(`File too small to hold the message.\nIf you wish, create a ${side} x ${side} black BMP using the option below.`);
+          return;
+        }
+        for (let i = 0; i < bits.length; i++) {
+          buffer[HEADER_SIZE + i] &= 0xFE;
+          buffer[HEADER_SIZE + i] |= bits[i];
+        }
+        const blob = new Blob([buffer], { type: 'image/bmp' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = 'encoded.bmp';
+        link.click();
+      };
+      reader.readAsArrayBuffer(fileInput.files[0]);
+    }
+
+    function decodeMessage() {
+      const fileInput = document.getElementById('decodeImg');
+      if (!fileInput.files[0]) return alert("Please select a BMP image.");
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const buffer = new Uint8Array(e.target.result);
+        const message = getTextFromBits(buffer, HEADER_SIZE);
+        document.getElementById('output').value = message;
+      };
+      reader.readAsArrayBuffer(fileInput.files[0]);
+    }
+
+    function generateBlackBMP() {
+      const size = parseInt(document.getElementById('bmpSize').value);
+      if (isNaN(size) || size <= 0) {
+        alert("Enter a valid size.");
+        return;
+      }
+
+      const rowSize = ((size * 3 + 3) & ~3);
+      const imageSize = rowSize * size;
+      const fileSize = HEADER_SIZE + imageSize;
+
+      const buffer = new Uint8Array(fileSize);
+      buffer[0] = 0x42; buffer[1] = 0x4D;
+      buffer[2] = fileSize & 0xFF;
+      buffer[3] = (fileSize >> 8) & 0xFF;
+      buffer[4] = (fileSize >> 16) & 0xFF;
+      buffer[5] = (fileSize >> 24) & 0xFF;
+      buffer[10] = HEADER_SIZE;
+
+      buffer[14] = 40; // DIB header size
+      buffer[18] = size & 0xFF;
+      buffer[19] = (size >> 8) & 0xFF;
+      buffer[20] = (size >> 16) & 0xFF;
+      buffer[21] = (size >> 24) & 0xFF;
+      buffer[22] = size & 0xFF;
+      buffer[23] = (size >> 8) & 0xFF;
+      buffer[24] = (size >> 16) & 0xFF;
+      buffer[25] = (size >> 24) & 0xFF;
+      buffer[26] = 1;
+      buffer[28] = 24;
+
+      const blob = new Blob([buffer], { type: 'image/bmp' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `black_${size}x${size}.bmp`;
+      link.click();
+    }
+  </script>
+</body>
+</html>
