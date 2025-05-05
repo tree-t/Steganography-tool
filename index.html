@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>BMP Steganography</title>
+  <title>Steganography Tool</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     body {
@@ -29,8 +29,11 @@
       border-radius: 4px;
       resize: vertical;
     }
-    input[type="file"], input[type="number"] {
+    input[type="file"], input[type="number"], select {
       margin: 10px 0;
+      width: 100%;
+      padding: 8px;
+      box-sizing: border-box;
     }
     button {
       padding: 10px 20px;
@@ -52,19 +55,25 @@
   </style>
 </head>
 <body>
-  <h1>BMP Steganography</h1>
+  <h1>Steganography Tool</h1>
 
   <h2>Encode</h2>
-  <label for="encodeImg">Select BMP image:</label>
-  <input type="file" id="encodeImg" accept=".bmp,image/bmp,image/*">
+  <label for="imageFormat">Select Image Format:</label>
+  <select id="imageFormat">
+    <option value="bmp">BMP</option>
+    <option value="png">PNG</option>
+  </select>
+
+  <label for="encodeImg">Select Image:</label>
+  <input type="file" id="encodeImg" accept=".bmp,.png,image/bmp,image/png,image/*">
 
   <label for="message">Message to embed:</label>
   <textarea id="message" placeholder="Enter your message here..." style="height: 150px;"></textarea>
   <button onclick="encodeMessage()">Encode & Download</button>
 
   <h2>Decode</h2>
-  <label for="decodeImg">Select BMP image:</label>
-  <input type="file" id="decodeImg" accept=".bmp,image/bmp,image/*">
+  <label for="decodeImg">Select Image:</label>
+  <input type="file" id="decodeImg" accept=".bmp,.png,image/bmp,image/png,image/*">
   <button onclick="decodeMessage()">Decode</button>
 
   <label for="output">Extracted Message:</label>
@@ -109,39 +118,96 @@
     function encodeMessage() {
       const fileInput = document.getElementById('encodeImg');
       const message = document.getElementById('message').value;
-      if (!fileInput.files[0]) return alert("Please select a BMP image.");
+      const format = document.getElementById('imageFormat').value;
+      if (!fileInput.files[0]) return alert("Please select an image.");
       const reader = new FileReader();
       reader.onload = function (e) {
-        const buffer = new Uint8Array(e.target.result);
-        const bits = getBitArrayFromText(message);
-        if (buffer.length - HEADER_SIZE < bits.length) {
-          const side = Math.ceil(Math.sqrt(bits.length / 3));
-alert(`File too small to hold the message.\nIf you wish, create a ${side} x ${side} black BMP using the option below.`);
-          return;
+        if (format === 'bmp') {
+          const buffer = new Uint8Array(e.target.result);
+          const bits = getBitArrayFromText(message);
+          if (buffer.length - HEADER_SIZE < bits.length) {
+            const side = Math.ceil(Math.sqrt(bits.length / 3));
+            alert(`File too small to hold the message.\nIf you wish, create a ${side} x ${side} black BMP using the option below.`);
+            return;
+          }
+          for (let i = 0; i < bits.length; i++) {
+            buffer[HEADER_SIZE + i] &= 0xFE;
+            buffer[HEADER_SIZE + i] |= bits[i];
+          }
+          const blob = new Blob([buffer], { type: 'image/bmp' });
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = 'encoded.bmp';
+          link.click();
+        } else if (format === 'png') {
+          const img = new Image();
+          img.onload = function () {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const bits = getBitArrayFromText(message);
+            if (imageData.data.length < bits.length) {
+              alert("Image too small to hold the message.");
+              return;
+            }
+            for (let i = 0; i < bits.length; i++) {
+              imageData.data[i] &= 0xFE;
+              imageData.data[i] |= bits[i];
+            }
+            ctx.putImageData(imageData, 0, 0);
+            canvas.toBlob(function(blob) {
+              const link = document.createElement('a');
+              link.href = URL.createObjectURL(blob);
+              link.download = 'encoded.png';
+              link.click();
+            }, 'image/png');
+          };
+          img.src = e.target.result;
         }
-        for (let i = 0; i < bits.length; i++) {
-          buffer[HEADER_SIZE + i] &= 0xFE;
-          buffer[HEADER_SIZE + i] |= bits[i];
-        }
-        const blob = new Blob([buffer], { type: 'image/bmp' });
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(blob);
-        link.download = 'encoded.bmp';
-        link.click();
       };
-      reader.readAsArrayBuffer(fileInput.files[0]);
+      if (format === 'bmp') {
+        reader.readAsArrayBuffer(fileInput.files[0]);
+      } else if (format === 'png') {
+        reader.readAsDataURL(fileInput.files[0]);
+      }
     }
 
     function decodeMessage() {
       const fileInput = document.getElementById('decodeImg');
-      if (!fileInput.files[0]) return alert("Please select a BMP image.");
+      if (!fileInput.files[0]) return alert("Please select an image.");
       const reader = new FileReader();
       reader.onload = function (e) {
-        const buffer = new Uint8Array(e.target.result);
-        const message = getTextFromBits(buffer, HEADER_SIZE);
-        document.getElementById('output').value = message;
+        const format = fileInput.files[0].name.split('.').pop().toLowerCase();
+        if (format === 'bmp') {
+          const buffer = new Uint8Array(e.target.result);
+          const message = getTextFromBits(buffer, HEADER_SIZE);
+          document.getElementById('output').value = message;
+        } else if (format === 'png') {
+          const img = new Image();
+          img.onload = function () {
+            const canvas = document.createElement('canvas');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0);
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const message = getTextFromBits(imageData.data, 0);
+            document.getElementById('output').value = message;
+          };
+          img.src = e.target.result;
+        }
       };
-      reader.readAsArrayBuffer(fileInput.files[0]);
+      const format = fileInput.files[0].name.split('.').pop().toLowerCase();
+      if (format === 'bmp') {
+        reader.readAsArrayBuffer(fileInput.files[0]);
+      } else if (format === 'png') {
+        reader.readAsDataURL(fileInput.files[0]);
+      } else {
+        alert("Unsupported file format.");
+      }
     }
 
     function generateBlackBMP() {
@@ -179,7 +245,7 @@ alert(`File too small to hold the message.\nIf you wish, create a ${side} x ${si
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
       link.download = `black_${size}x${size}.bmp`;
-      link.click();
+            link.click();
     }
   </script>
 </body>
